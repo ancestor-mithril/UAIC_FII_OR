@@ -188,7 +188,7 @@ void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix, const In
     }
 }
 
-void simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices, const bool debug) {
+std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices, const bool debug) {
     auto matrix = _matrix;
     auto initialMatrix = matrix;
     const auto m = matrix.getRows();
@@ -210,7 +210,7 @@ void simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices, const b
             printVec(debugStream, pivotCol);
             matrix.print(debugStream);
             std::cout << "Problem is unbounded\n";
-            return;
+            throw std::runtime_error{"Problem is unbounded"};
         }
 
         // m - 1 because we don't need last row
@@ -266,29 +266,39 @@ void simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices, const b
         matrix.print(debugStream);
     }
 
-    printSolution(debugStream, matrix, initialMatrix, rowIndices);
+    
 
     if (debug) {
         std::cout << debugStream.str();
     }
+
+    return {matrix, rowIndices};
 }
 
 
 
-void simplexAlgorithm(std::size_t example = 0) {
+void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
     auto matrix = initData(example);
-    auto initialMatrix = matrix;
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
     auto rowIndices = initIndices(m - 1, n - m);
 
-    simplexAlgorithm(matrix, rowIndices, true);
+    try {
+        auto [newMatrix, newRowIndices] = simplexAlgorithm(matrix, rowIndices, debug);
+        if (debug) {
+            printSolution(std::cout, newMatrix, matrix, newRowIndices);
+        }
+    } catch (...) {
+
+    }
+    
+    
 }
 
 int main() {
-    simplexAlgorithm(1);
-    simplexAlgorithm(2);
-    simplexAlgorithm(3);
+    doSimplexAlgorithm(1, true);
+    doSimplexAlgorithm(2, true);
+    doSimplexAlgorithm(3, true);
 
     return 0;
 }
