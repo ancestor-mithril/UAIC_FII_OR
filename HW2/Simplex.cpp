@@ -1,12 +1,12 @@
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <numeric>
 #include <ranges>
+#include <sstream>
 #include <tuple>
 #include <valarray>
 #include <vector>
-#include <iomanip>
 
 namespace ranges = std::ranges;
 using namespace std::string_literals;
@@ -59,6 +59,29 @@ class Matrix {
 
     std::valarray<double> col(std::size_t col) { return sliceCol(col); }
 
+    void addColumn(std::size_t col, double value)
+    {
+        // complicated code to add a new column. Also, very ineficient.
+        // Faster solution would be to create a new vallaray,
+        // copy each row until col inside it, add a 0.0, copy the rest of the row.
+        // And each row can be copied in parallel since we know the start indices.
+        auto newData = std::valarray<double>(value, rows * (cols + 1));
+        for (std::size_t i = 0; i != rows; ++i) {
+            for (std::size_t j = 0; j != cols + 1; ++j) {
+                if (j == col) {
+                    continue;
+                }
+                if (j > col) {
+                    newData[i * (cols + 1) + j] = data[i * cols + j - 1];
+                } else {
+                    newData[i * (cols + 1) + j] = data[i * cols + j];
+                }
+            }
+        }
+        ++cols;
+        data = newData;
+    }
+
     void print(auto& stream) {
         for (auto i = 0U; i != rows; ++i) {
             printVec(stream, row(i), " \t"s);
@@ -73,9 +96,8 @@ auto isPositive = [](const auto value) { return value > 0; };
 
 using Indices = std::vector<std::size_t>;
 
-Indices getIndicesIfPred(const auto& vec,
-                                          const std::size_t start,
-                                          const std::size_t end, auto pred) {
+Indices getIndicesIfPred(const auto& vec, const std::size_t start,
+                         const std::size_t end, auto pred) {
     auto ret = Indices{};
     for (std::size_t i = start; i != end; ++i) {
         if (pred(vec[i])) {
@@ -149,6 +171,44 @@ Matrix initData(std::size_t example = 0) {
         }
         return ret;
     }
+    if (example == 4) {
+        auto init = std::vector<std::vector<double>>{
+            {3, 2, 0, 0, 14},
+            {2, -4, -1, 0, 2},
+            {4, 3, 0, 1, 0, 19},
+            {2, 3, 0, 0, 0, 0},
+        };
+
+        const auto m = init.size();
+        const auto n = init[0].size();
+
+        auto ret = Matrix{m, n};
+        for (std::size_t i = 0; i != m; ++i) {
+            for (std::size_t j = 0; j != n; ++j) {
+                ret(i, j) = init[i][j];
+            }
+        }
+        return ret;
+    }
+    if (example == 5) {
+        auto init = std::vector<std::vector<double>>{
+            {2, 1, -1, 0, 7},
+            {2, 2, 0, 1, 10},
+            {-1, 2, 0, 0, 0},
+        };
+
+        const auto m = init.size();
+        const auto n = init[0].size();
+
+        auto ret = Matrix{m, n};
+        for (std::size_t i = 0; i != m; ++i) {
+            for (std::size_t j = 0; j != n; ++j) {
+                ret(i, j) = init[i][j];
+            }
+        }
+        return ret;
+    }
+
     auto init = std::vector<std::vector<double>>{
         {2, 1, 1, 0, 0, 100},
         {1, 1, 0, 1, 0, 80},
@@ -168,8 +228,8 @@ Matrix initData(std::size_t example = 0) {
     return ret;
 }
 
-void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix, const Indices& rowIndices)
-{
+void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix,
+                   const Indices& rowIndices) {
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
     stream << "Optimum value: " << -matrix(m - 1, n - 1) << '\n';
@@ -183,24 +243,33 @@ void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix, const In
     for (std::size_t i = 0; i != m; ++i) {
         auto row = initialMatrix.row(i);
         printVec(stream, row);
-        stream << "Inner product: " << std::inner_product(std::begin(variables), std::end(variables), std::begin(row), 0.0) << '\n';
+        stream << "Inner product: "
+               << std::inner_product(std::begin(variables), std::end(variables),
+                                     std::begin(row), 0.0)
+               << '\n';
         stream << '\n';
     }
 }
 
-std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices, const bool debug) {
+std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
+                                            const Indices& _rowIndices,
+                                            const bool debug) {
     auto matrix = _matrix;
-    auto initialMatrix = matrix;
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
     auto rowIndices = _rowIndices;
     auto debugStream = std::ostringstream{};
+    debugStream << "Row indices: ";
+    printVec(debugStream, rowIndices);
+    matrix.print(debugStream);
 
-    for (auto candidatePivots = getIndicesIfPred(matrix.row(m - 1), 0, n - 1, isNegative);
+    for (auto candidatePivots =
+             getIndicesIfPred(matrix.row(m - 1), 0, n - 1, isNegative);
          not candidatePivots.empty();
-         candidatePivots = getIndicesIfPred(matrix.row(m - 1), 0, n - 1, isNegative)) {
-        const auto pivot =
-            *ranges::min_element(candidatePivots);
+         candidatePivots =
+             getIndicesIfPred(matrix.row(m - 1), 0, n - 1, isNegative)) {
+
+        const auto pivot = *ranges::min_element(candidatePivots);
 
         const auto pivotCol = matrix.col(pivot);
 
@@ -214,7 +283,8 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices
         }
 
         // m - 1 because we don't need last row
-        const auto positiveIndices = getIndicesIfPred(pivotCol, 0, m - 1, isPositive);
+        const auto positiveIndices =
+            getIndicesIfPred(pivotCol, 0, m - 1, isPositive);
 
         auto division = [&](const auto index) {
             // the last element on row is divided by the pivot element on the
@@ -248,7 +318,7 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices
                 if (j == pivot) {
                     continue;
                 }
-                
+
                 matrix(i, j) = (matrix(i, j) * tkl -
                                 matrix(i, pivot) * matrix(leaving, j)) /
                                tkl;
@@ -266,8 +336,6 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices
         matrix.print(debugStream);
     }
 
-    
-
     if (debug) {
         std::cout << debugStream.str();
     }
@@ -275,30 +343,50 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix, const Indices
     return {matrix, rowIndices};
 }
 
-
+Matrix prepareForPhaseOne(const Matrix& _matrix)
+{
+    auto matrix = _matrix;
+    auto artificialSlackVariablesNumber = matrix.getRows() - 1;
+    matrix.sliceRow(artificialSlackVariablesNumber) = 0; // setting the last row to 0
+    for (std::size_t i = 0; i != artificialSlackVariablesNumber; ++i) {
+        const auto columnIndex = matrix.getCols() - 1; // adding column left to RHS
+        matrix.addColumn(columnIndex, 0); 
+        matrix.sliceRow(artificialSlackVariablesNumber) = matrix.row(artificialSlackVariablesNumber) - matrix.row(i);
+        matrix(i, columnIndex) = 1; // setting the artificial slack variable to 1
+    }
+    return matrix;
+}
 
 void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
     auto matrix = initData(example);
-    const auto m = matrix.getRows();
-    const auto n = matrix.getCols();
-    auto rowIndices = initIndices(m - 1, n - m);
-
+    if (debug) {
+        matrix.print(std::cout);
+    }
+   
     try {
-        auto [newMatrix, newRowIndices] = simplexAlgorithm(matrix, rowIndices, debug);
+        auto phaseOneMatrix = prepareForPhaseOne(matrix);
+        const auto m = phaseOneMatrix.getRows();
+        const auto n = phaseOneMatrix.getCols();
+        auto rowIndices = initIndices(m - 1, n - m);
+
+        auto [newMatrix, newRowIndices] =
+            simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
+
         if (debug) {
             printSolution(std::cout, newMatrix, matrix, newRowIndices);
         }
+        auto [newMatrix2, newRowIndices2] =
+            simplexAlgorithm(newMatrix, newRowIndices, debug);
     } catch (...) {
-
     }
-    
-    
 }
 
 int main() {
-    doSimplexAlgorithm(1, true);
-    doSimplexAlgorithm(2, true);
-    doSimplexAlgorithm(3, true);
+    // doSimplexAlgorithm(1, true);
+    // doSimplexAlgorithm(2, true);
+    // doSimplexAlgorithm(3, true);
+    doSimplexAlgorithm(4, true);
+    doSimplexAlgorithm(5, true);
 
     return 0;
 }
