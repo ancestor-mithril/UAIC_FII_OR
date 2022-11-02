@@ -59,12 +59,12 @@ class Matrix {
 
     std::valarray<double> col(std::size_t col) { return sliceCol(col); }
 
-    void addColumn(std::size_t col, double value)
-    {
+    void addColumn(std::size_t col, double value) {
         // complicated code to add a new column. Also, very ineficient.
         // Faster solution would be to create a new vallaray,
-        // copy each row until col inside it, add a 0.0, copy the rest of the row.
-        // And each row can be copied in parallel since we know the start indices.
+        // copy each row until col inside it, add a 0.0, copy the rest of the
+        // row. And each row can be copied in parallel since we know the start
+        // indices.
         auto newData = std::valarray<double>(value, rows * (cols + 1));
         for (std::size_t i = 0; i != rows; ++i) {
             for (std::size_t j = 0; j != cols + 1; ++j) {
@@ -268,7 +268,6 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
          not candidatePivots.empty();
          candidatePivots =
              getIndicesIfPred(matrix.row(m - 1), 0, n - 1, isNegative)) {
-
         const auto pivot = *ranges::min_element(candidatePivots);
 
         const auto pivotCol = matrix.col(pivot);
@@ -343,18 +342,30 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
     return {matrix, rowIndices};
 }
 
-Matrix prepareForPhaseOne(const Matrix& _matrix)
-{
+Matrix prepareForPhaseOne(const Matrix& _matrix) {
     auto matrix = _matrix;
     auto artificialSlackVariablesNumber = matrix.getRows() - 1;
-    matrix.sliceRow(artificialSlackVariablesNumber) = 0; // setting the last row to 0
+    matrix.sliceRow(artificialSlackVariablesNumber) =
+        0;  // setting the last row to 0
     for (std::size_t i = 0; i != artificialSlackVariablesNumber; ++i) {
-        const auto columnIndex = matrix.getCols() - 1; // adding column left to RHS
-        matrix.addColumn(columnIndex, 0); 
-        matrix.sliceRow(artificialSlackVariablesNumber) = matrix.row(artificialSlackVariablesNumber) - matrix.row(i);
-        matrix(i, columnIndex) = 1; // setting the artificial slack variable to 1
+        const auto columnIndex =
+            matrix.getCols() - 1;  // adding column left to RHS
+        matrix.addColumn(columnIndex, 0);
+        matrix.sliceRow(artificialSlackVariablesNumber) =
+            matrix.row(artificialSlackVariablesNumber) - matrix.row(i);
+        matrix(i, columnIndex) =
+            1;  // setting the artificial slack variable to 1
     }
     return matrix;
+}
+
+// our convention is that we always add artificial slack variables (so we have
+// numRows -1 artificial slack variables that need to be eliminated)
+// furthermore, the objective function needs to be recalculated
+std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& matrix,
+                                              const Indices& rowIndices) {
+    // TODO: Implement transformation to phase two from phase one.
+    return {matrix, rowIndices};
 }
 
 void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
@@ -362,22 +373,38 @@ void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
     if (debug) {
         matrix.print(std::cout);
     }
-   
+
     try {
         auto phaseOneMatrix = prepareForPhaseOne(matrix);
         const auto m = phaseOneMatrix.getRows();
         const auto n = phaseOneMatrix.getCols();
         auto rowIndices = initIndices(m - 1, n - m);
 
-        auto [newMatrix, newRowIndices] =
+        auto [phaseOneResult, phaseOneRowIndices] =
             simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
 
         if (debug) {
-            printSolution(std::cout, newMatrix, matrix, newRowIndices);
+            printSolution(std::cout, phaseOneResult, matrix,
+                          phaseOneRowIndices);
         }
-        auto [newMatrix2, newRowIndices2] =
-            simplexAlgorithm(newMatrix, newRowIndices, debug);
+
+        if (phaseOneResult(m - 1, n - 1) < 0) {
+            std::cout << "No solution for the phase 1 matrix\n";
+            throw std::runtime_error{"No solution for the phase 1 matrix"};
+        }
+
+        auto [phaseTwoMatrix, phaseTwoRowIndices] =
+            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices);
+
+        auto [finalMatrix, finalRowIndices] =
+            simplexAlgorithm(phaseTwoMatrix, phaseTwoRowIndices, debug);
+
+        if (debug) {
+            printSolution(std::cout, phaseTwoMatrix, phaseTwoMatrix,
+                          finalRowIndices);
+        }
     } catch (...) {
+        std::cout << "\n\n\n\n";
     }
 }
 
