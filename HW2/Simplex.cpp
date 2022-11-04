@@ -82,6 +82,45 @@ class Matrix {
         data = newData;
     }
 
+    void removeColumn(std::size_t col) {
+        auto newData = std::valarray<double>(0.0, rows * (cols - 1));
+        for (std::size_t i = 0; i != rows; ++i) {
+            for (std::size_t j = 0; j != cols - 1; ++j) {
+                if (j >= col) {
+                    newData[i * (cols - 1) + j] = data[i * cols + j + 1];
+                } else {
+                    newData[i * (cols - 1) + j] = data[i * cols + j];
+                }
+            }
+        }
+        --cols;
+        data = newData;
+    }
+
+    void removeRow(std::size_t row) {
+        auto newData = std::valarray<double>(0.0, (rows - 1) * cols);
+        for (std::size_t i = 0; i != rows - 1; ++i) {
+            for (std::size_t j = 0; j != cols; ++j) {
+                if (i >= row) {
+                    newData[i * cols + j] = data[(i + 1) * cols + j];
+                } else {
+                    newData[i * cols + j] = data[i * cols + j];
+                }
+            }
+        }
+        --rows;
+        data = newData;
+    }
+
+    std::pair<std::size_t, bool> findIfOnRow(std::size_t row, auto pred) {
+        for (std::size_t i = 0; i != cols; ++i) {
+            if (pred(this->operator()(row, i))) {
+                return {i, true};
+            }
+        }
+        return {cols, false};
+    }
+
     void print(auto& stream) {
         for (auto i = 0U; i != rows; ++i) {
             printVec(stream, row(i), " \t"s);
@@ -93,8 +132,14 @@ class Matrix {
 auto isNegative = [](const auto value) { return value < 0; };
 auto isNegativeOrZero = [](const auto value) { return value <= 0; };
 auto isPositive = [](const auto value) { return value > 0; };
+auto isNotZero = [](const auto value) { return value != 0; };
 
 using Indices = std::vector<std::size_t>;
+
+void remove_erase_if(auto& vec, auto pred) {
+    const auto [removeFirst, removeLast] = ranges::remove_if(vec, pred);
+    vec.erase(removeFirst, removeLast);
+}
 
 Indices getIndicesIfPred(const auto& vec, const std::size_t start,
                          const std::size_t end, auto pred) {
@@ -362,9 +407,38 @@ Matrix prepareForPhaseOne(const Matrix& _matrix) {
 // our convention is that we always add artificial slack variables (so we have
 // numRows -1 artificial slack variables that need to be eliminated)
 // furthermore, the objective function needs to be recalculated
-std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& matrix,
-                                              const Indices& rowIndices) {
+std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
+                                              const Indices& phaseOneRowIndices) {
     // TODO: Implement transformation to phase two from phase one.
+
+    auto matrix = phaseOneMatrix;
+    auto rowIndices = phaseOneRowIndices;
+
+    // we now need to remove the variables from rowIndices that are artificial
+
+    // artificial variables are the last numRows - 1 variables
+    const auto firstArtificial = matrix.getCols() - matrix.getRows();
+    auto isArtificial = [firstArtificial](const auto index) {
+        return index >= firstArtificial;
+    };
+
+    for (std::size_t i = 0, end = rowIndices.size(); i != end; ++i) {
+        if (not isArtificial(rowIndices[i])) { 
+            continue;
+        }
+
+        const auto [index, found] = matrix.findIfOnRow(i, isNotZero);
+        if (not found or index >= firstArtificial) {
+            // we need to remove the i line and rowIndices[i] column
+            matrix.removeRow(i);
+            matrix.removeColumn(rowIndices[i]);
+        } else {
+            // we need to permute 
+            // TODO
+        }
+    }
+    remove_erase_if(rowIndices, isArtificial);
+
     return {matrix, rowIndices};
 }
 
@@ -412,8 +486,8 @@ int main() {
     // doSimplexAlgorithm(1, true);
     // doSimplexAlgorithm(2, true);
     // doSimplexAlgorithm(3, true);
-    doSimplexAlgorithm(4, true);
-    doSimplexAlgorithm(5, true);
+    doSimplexAlgorithm(4, false);
+    doSimplexAlgorithm(5, false);
 
     return 0;
 }
