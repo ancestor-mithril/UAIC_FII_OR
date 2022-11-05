@@ -309,7 +309,6 @@ Matrix initData(std::size_t example = 0) {
         return ret;
     }
 
-
     auto init = std::vector<std::vector<double>>{
         {2, 1, 1, 0, 0, 100},
         {1, 1, 0, 1, 0, 80},
@@ -378,6 +377,69 @@ void pivotMatrix(Matrix& matrix, const std::size_t pivotRow,
     matrix.sliceRow(pivotRow) = matrix.row(pivotRow) / pivotElement;
 }
 
+std::pair<Matrix, Indices> dualSimplexAlgorithm(const Matrix& _matrix,
+                                                const Indices& _rowIndices,
+                                                const bool debug) {
+    auto matrix = _matrix;
+    const auto m = matrix.getRows();
+    const auto n = matrix.getCols();
+    auto rowIndices = _rowIndices;
+    auto debugStream = std::ostringstream{};
+    debugStream << "Row indices: ";
+    printVec(debugStream, rowIndices);
+    matrix.print(debugStream);
+
+    auto blandRule = [&rowIndices](const auto i, const auto j) {
+        return rowIndices[i] < rowIndices[j];
+    };
+
+    for (auto candidatePivots =
+             getIndicesIfPred(matrix.col(n - 1), 0, m - 1, isNegative);
+         not candidatePivots.empty();
+         candidatePivots =
+             getIndicesIfPred(matrix.col(n - 1), 0, m - 1, isNegative)) {
+        const auto pivotRowIndex =
+            *ranges::min_element(candidatePivots, blandRule);
+        auto pivotRow = matrix.row(pivotRowIndex);
+        pivotRow[n - 1] =
+            0;  // setting this because this value would be negative
+        if (pivotRow.min() == 0) {
+            std::cout
+                << "The problem is infeasible - and its dual is unbounded\n";
+            throw std::runtime_error{
+                "The problem is infeasible - and its dual is unbounded\n"};
+        }
+        pivotRow[n - 1] = matrix(pivotRowIndex, n - 1);  // setting this back
+
+        const auto negativeColIndices =
+            getIndicesIfPred(pivotRow, 0, n - 1, isNegative);
+        auto division = [&](const auto index) {
+            return std::fabs(matrix(m - 1, index) / pivotRow[index]);
+        };
+        auto compare = [&](const auto i, const auto j) {
+            return division(i) < division(j);
+        };
+
+        const auto pivotCol = *ranges::min_element(negativeColIndices, compare);
+
+        debugStream << "Pivot row (leaving): " << pivotRowIndex << '\n';
+        debugStream << "Pivot col (entering): " << pivotCol << '\n';  // why?>
+        pivotMatrix(matrix, pivotRowIndex, pivotCol);
+
+        // updating indices
+        rowIndices[pivotRowIndex] = pivotCol;
+        debugStream << "Row indices: ";
+        printVec(debugStream, rowIndices);
+        matrix.print(debugStream);
+    }
+
+    if (debug) {
+        std::cout << debugStream.str();
+    }
+
+    return {matrix, rowIndices};
+}
+
 std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
                                             const Indices& _rowIndices,
                                             const bool debug) {
@@ -413,7 +475,7 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
         auto division = [&](const auto index) {
             // the last element on row is divided by the pivot element on the
             // row
-            return matrix(index, n - 1) / matrix(index, pivot);
+            return matrix(index, n - 1) / pivotCol[index];
         };
 
         auto compare = [&](const auto i, const auto j) {
@@ -502,7 +564,7 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
         }
     }
     remove_erase_if(rowIndices, isArtificial);
-    
+
     // removing artificial variables
     for (std::size_t i = 0; i != end; ++i) {
         matrix.removeColumn(firstArtificial);
