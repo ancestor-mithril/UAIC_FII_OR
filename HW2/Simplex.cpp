@@ -296,6 +296,32 @@ void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix,
     }
 }
 
+void pivotMatrix(Matrix& matrix, const std::size_t pivotRow,
+                 const std::size_t pivotCol) {
+    const auto pivotElement = matrix(pivotRow, pivotCol);
+    const auto m = matrix.getRows();
+    const auto n = matrix.getCols();
+
+    for (std::size_t i = 0; i != m; ++i) {
+        if (i == pivotRow) {
+            continue;
+        }
+        for (std::size_t j = 0; j != n; ++j) {
+            if (j == pivotCol) {
+                continue;
+            }
+
+            matrix(i, j) = (matrix(i, j) * pivotElement -
+                            matrix(i, pivotCol) * matrix(pivotRow, j)) /
+                           pivotElement;
+        }
+    }
+
+    matrix.sliceCol(pivotCol) = 0;              // set all column to 0
+    matrix(pivotRow, pivotCol) = pivotElement;  // set this value back
+    matrix.sliceRow(pivotRow) = matrix.row(pivotRow) / pivotElement;
+}
+
 std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
                                             const Indices& _rowIndices,
                                             const bool debug) {
@@ -316,8 +342,6 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
         const auto pivot = *ranges::min_element(candidatePivots);
 
         const auto pivotCol = matrix.col(pivot);
-
-        debugStream << "Pivot: " << pivot << '\n';
 
         if (ranges::all_of(pivotCol, isNegativeOrZero)) {
             printVec(debugStream, pivotCol);
@@ -349,29 +373,10 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
         };
 
         const auto leaving = *ranges::min_element(positiveIndices, compare);
-        const auto tkl = matrix(leaving, pivot);
 
         debugStream << "Leaving: " << leaving << '\n';
-        debugStream << "tkl: " << tkl << '\n';
-
-        for (std::size_t i = 0; i != m; ++i) {
-            if (i == leaving) {
-                continue;
-            }
-            for (std::size_t j = 0; j != n; ++j) {
-                if (j == pivot) {
-                    continue;
-                }
-
-                matrix(i, j) = (matrix(i, j) * tkl -
-                                matrix(i, pivot) * matrix(leaving, j)) /
-                               tkl;
-            }
-        }
-
-        matrix.sliceCol(pivot) = 0;    // set all column to 0
-        matrix(leaving, pivot) = tkl;  // set this value back
-        matrix.sliceRow(leaving) = matrix.row(leaving) / tkl;
+        debugStream << "Pivot: " << pivot << '\n';  // why?>
+        pivotMatrix(matrix, leaving, pivot);
 
         // updating indices
         rowIndices[leaving] = pivot;
@@ -390,16 +395,17 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
 Matrix prepareForPhaseOne(const Matrix& _matrix) {
     auto matrix = _matrix;
     auto artificialSlackVariablesNumber = matrix.getRows() - 1;
-    matrix.sliceRow(artificialSlackVariablesNumber) =
-        0;  // setting the last row to 0
+    // setting the last row to 0
+    matrix.sliceRow(artificialSlackVariablesNumber) = 0;
+
     for (std::size_t i = 0; i != artificialSlackVariablesNumber; ++i) {
-        const auto columnIndex =
-            matrix.getCols() - 1;  // adding column left to RHS
+        // adding column left to RHS
+        const auto columnIndex = matrix.getCols() - 1;
         matrix.addColumn(columnIndex, 0);
         matrix.sliceRow(artificialSlackVariablesNumber) =
             matrix.row(artificialSlackVariablesNumber) - matrix.row(i);
-        matrix(i, columnIndex) =
-            1;  // setting the artificial slack variable to 1
+        // setting the artificial slack variable to 1
+        matrix(i, columnIndex) = 1;
     }
     return matrix;
 }
@@ -408,8 +414,9 @@ Matrix prepareForPhaseOne(const Matrix& _matrix) {
 // numRows -1 artificial slack variables that need to be eliminated)
 // furthermore, the objective function needs to be recalculated
 std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
-                                              const Indices& phaseOneRowIndices) {
-    // TODO: Implement transformation to phase two from phase one.
+                                              const Indices& phaseOneRowIndices,
+                                              Matrix& oldMatrix) {
+    // oldMatrix not const because of lazyness
 
     auto matrix = phaseOneMatrix;
     auto rowIndices = phaseOneRowIndices;
@@ -422,8 +429,9 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
         return index >= firstArtificial;
     };
 
-    for (std::size_t i = 0, end = rowIndices.size(); i != end; ++i) {
-        if (not isArtificial(rowIndices[i])) { 
+    const auto end = rowIndices.size();
+    for (std::size_t i = 0; i != end; ++i) {
+        if (not isArtificial(rowIndices[i])) {
             continue;
         }
 
@@ -433,13 +441,49 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
             matrix.removeRow(i);
             matrix.removeColumn(rowIndices[i]);
         } else {
-            // we need to permute 
-            // TODO
+            // we need to permute
+            pivotMatrix(matrix, i, index);
+            rowIndices[i] = index;
         }
     }
     remove_erase_if(rowIndices, isArtificial);
 
+    // removing artificial variables
+    for (std::size_t i = 0; i != end; ++i) {
+        matrix.removeColumn(firstArtificial);
+    }
+
+    // setting objective function to old objective function
+    const auto lastRow = matrix.getRows() - 1;
+    const auto lastColumn = matrix.getCols() - 1;
+    matrix.sliceRow(lastRow) = oldMatrix.row(lastRow);
+
+    // recalculating objective function
+    for (auto i = 0; i != lastRow; ++i) {
+        const auto currentIndex = rowIndices[i];
+        const auto factor = matrix(lastRow, currentIndex);
+        if (factor == 0) {
+            // special case in which division by zero happens
+            continue;
+        }
+
+        auto currentRow = matrix.row(i);
+        currentRow[lastColumn] = -currentRow[lastColumn];
+        currentRow /= factor;
+        matrix.sliceRow(lastRow) = matrix.row(lastRow) - currentRow;
+        matrix(lastRow, currentIndex) = 0;
+    }
+
     return {matrix, rowIndices};
+}
+
+void justSimplex(std::size_t example = 0) {
+    auto matrix = initData(example);
+    matrix.print(std::cout);
+    const auto m = matrix.getRows();
+    const auto n = matrix.getCols();
+    auto rowIndices = initIndices(m - 1, n - m);
+    simplexAlgorithm(matrix, rowIndices, true);
 }
 
 void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
@@ -454,13 +498,14 @@ void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
         const auto n = phaseOneMatrix.getCols();
         auto rowIndices = initIndices(m - 1, n - m);
 
+        std::cout << "\n\n\nPhase I \n";
         auto [phaseOneResult, phaseOneRowIndices] =
             simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
 
-        if (debug) {
-            printSolution(std::cout, phaseOneResult, matrix,
-                          phaseOneRowIndices);
-        }
+        // if (debug) {
+        //     printSolution(std::cout, phaseOneResult, matrix,
+        //                   phaseOneRowIndices);
+        // }
 
         if (phaseOneResult(m - 1, n - 1) < 0) {
             std::cout << "No solution for the phase 1 matrix\n";
@@ -468,7 +513,9 @@ void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
         }
 
         auto [phaseTwoMatrix, phaseTwoRowIndices] =
-            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices);
+            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices, matrix);
+
+        std::cout << "\n\n\nPhase II \n";
 
         auto [finalMatrix, finalRowIndices] =
             simplexAlgorithm(phaseTwoMatrix, phaseTwoRowIndices, debug);
@@ -480,14 +527,15 @@ void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
     } catch (...) {
         std::cout << "\n\n\n\n";
     }
+    std::cout << "\n\n\n\n";
 }
 
 int main() {
-    // doSimplexAlgorithm(1, true);
-    // doSimplexAlgorithm(2, true);
-    // doSimplexAlgorithm(3, true);
+    // justSimplex(1);
+    // justSimplex(2);
+    // justSimplex(3);
     doSimplexAlgorithm(4, false);
-    doSimplexAlgorithm(5, false);
+    doSimplexAlgorithm(5, true);
 
     return 0;
 }
