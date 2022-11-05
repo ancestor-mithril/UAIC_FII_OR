@@ -458,8 +458,7 @@ Matrix prepareForPhaseOne(const Matrix& _matrix) {
         // adding column left to RHS
         const auto columnIndex = matrix.getCols() - 1;
         matrix.addColumn(columnIndex, 0);
-        matrix.sliceRow(artificialSlackVariablesNumber) =
-            matrix.row(artificialSlackVariablesNumber) - matrix.row(i);
+        matrix.sliceRow(artificialSlackVariablesNumber) -= matrix.row(i);
         // setting the artificial slack variable to 1
         matrix(i, columnIndex) = 1;
     }
@@ -519,14 +518,12 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
         const auto currentIndex = rowIndices[i];
         const auto factor = matrix(lastRow, currentIndex);
         if (factor == 0) {
-            // special case in which division by zero happens
             continue;
         }
 
         auto currentRow = matrix.row(i);
         currentRow[lastColumn] = -currentRow[lastColumn];
-        currentRow *= factor;
-        matrix.sliceRow(lastRow) = matrix.row(lastRow) - currentRow;
+        matrix.sliceRow(lastRow) -= currentRow * factor;
         matrix(lastRow, currentIndex) = 0;
     }
 
