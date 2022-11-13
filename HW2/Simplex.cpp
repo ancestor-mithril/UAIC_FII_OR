@@ -158,7 +158,7 @@ Indices initIndices(std::size_t n, int start = 0) {
     return ret;
 }
 
-Matrix initData(std::size_t example = 0) {
+std::pair<Matrix, Indices> initData(std::size_t example = 0) {
     // we assume that this is a m x n matrix
 
     if (example == 1) {
@@ -178,7 +178,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {}};
     }
     if (example == 2) {
         auto init = std::vector<std::vector<double>>{
@@ -195,7 +195,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {}};
     }
     if (example == 3) {
         auto init = std::vector<std::vector<double>>{
@@ -214,7 +214,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {}};
     }
     if (example == 4) {
         auto init = std::vector<std::vector<double>>{
@@ -233,7 +233,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {0, 1}};
     }
     if (example == 5) {
         auto init = std::vector<std::vector<double>>{
@@ -251,7 +251,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {0,}};
     }
     if (example == 6) {
         auto init = std::vector<std::vector<double>>{
@@ -269,7 +269,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {0, 1}};
     }
     if (example == 7) {
         auto init = std::vector<std::vector<double>>{
@@ -288,7 +288,7 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {0, 1, 2}};
     }
     if (example == 8) {
         auto init = std::vector<std::vector<double>>{
@@ -306,14 +306,14 @@ Matrix initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return ret;
+        return {ret, {0, 1}};
     }
 
     auto init = std::vector<std::vector<double>>{
-        {2, 1, 1, 0, 0, 100},
-        {1, 1, 0, 1, 0, 80},
-        {1, 0, 0, 0, 1, 40},
-        {-1, -9, 0, 0, 0, 0},
+        {1, 1, 1, 1, 0, 0, 6},
+        {1, -1, 0, 0, -1, 0, 1},
+        {1, 0, -1, 0, 0, -1, 1},
+        {-2, 1, -2, 0, 0, 0, 0},
     };
 
     const auto m = init.size();
@@ -325,7 +325,7 @@ Matrix initData(std::size_t example = 0) {
             ret(i, j) = init[i][j];
         }
     }
-    return ret;
+    return {ret, {1, 2}};
 }
 
 void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix,
@@ -510,19 +510,21 @@ std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
     return {matrix, rowIndices};
 }
 
-Matrix prepareForPhaseOne(const Matrix& _matrix) {
+Matrix prepareForPhaseOne(const Matrix& _matrix, Indices& artificialIndices) {
     auto matrix = _matrix;
+    auto lastRow = matrix.getRows() - 1;
     auto artificialSlackVariablesNumber = matrix.getRows() - 1;
     // setting the last row to 0
     matrix.sliceRow(artificialSlackVariablesNumber) = 0;
 
-    for (std::size_t i = 0; i != artificialSlackVariablesNumber; ++i) {
+    for (auto& i : artificialIndices) {
         // adding column left to RHS
         const auto columnIndex = matrix.getCols() - 1;
         matrix.addColumn(columnIndex, 0);
-        matrix.sliceRow(artificialSlackVariablesNumber) -= matrix.row(i);
+        matrix.sliceRow(lastRow) -= matrix.row(i);
         // setting the artificial slack variable to 1
         matrix(i, columnIndex) = 1;
+        i = columnIndex;
     }
     return matrix;
 }
@@ -532,19 +534,21 @@ Matrix prepareForPhaseOne(const Matrix& _matrix) {
 // furthermore, the objective function needs to be recalculated
 std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
                                               const Indices& phaseOneRowIndices,
-                                              Matrix& oldMatrix) {
+                                              Matrix& oldMatrix,
+                                              const Indices& artificialIndices) {
     // oldMatrix not const because of lazyness
 
     auto matrix = phaseOneMatrix;
+    
     auto rowIndices = phaseOneRowIndices;
 
     // we now need to remove the variables from rowIndices that are artificial
 
     // artificial variables are the last numRows - 1 variables
-    const auto firstArtificial = matrix.getCols() - matrix.getRows();
-    auto isArtificial = [firstArtificial](const auto index) {
-        return index >= firstArtificial;
+    auto isArtificial = [&artificialIndices](const auto index) {
+        return ranges::find(artificialIndices, index) != artificialIndices.end();
     };
+
 
     const auto end = rowIndices.size();
     for (std::size_t i = 0; i != end; ++i) {
@@ -553,7 +557,7 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
         }
 
         const auto [index, found] = matrix.findIfOnRow(i, isNotZero);
-        if (not found or index >= firstArtificial) {
+        if (not found or isArtificial(index)) {
             // we need to remove the i line and rowIndices[i] column
             matrix.removeRow(i);
             matrix.removeColumn(rowIndices[i]);
@@ -566,8 +570,8 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
     remove_erase_if(rowIndices, isArtificial);
 
     // removing artificial variables
-    for (std::size_t i = 0; i != end; ++i) {
-        matrix.removeColumn(firstArtificial);
+    for (std::size_t i = 0, end = artificialIndices.size(); i != end; ++i) {
+        matrix.removeColumn(matrix.getCols() - 2);
     }
 
     // setting objective function to old objective function
@@ -583,9 +587,7 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
             continue;
         }
 
-        auto currentRow = matrix.row(i);
-        currentRow[lastColumn] = -currentRow[lastColumn];
-        matrix.sliceRow(lastRow) -= currentRow * factor;
+        matrix.sliceRow(lastRow) -= matrix.row(i) * factor;
         matrix(lastRow, currentIndex) = 0;
     }
 
@@ -593,7 +595,7 @@ std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
 }
 
 void justSimplex(std::size_t example = 0) {
-    auto matrix = initData(example);
+    auto [matrix, artificialIndices] = initData(example);
     matrix.print(std::cout);
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
@@ -601,14 +603,14 @@ void justSimplex(std::size_t example = 0) {
     simplexAlgorithm(matrix, rowIndices, true);
 }
 
-void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
-    auto matrix = initData(example);
+void doSimplexAlgorithm(std::size_t example = 0, const bool debug = true) {
+    auto [matrix, artificialIndices] = initData(example);
     if (debug) {
         matrix.print(std::cout);
     }
 
     try {
-        auto phaseOneMatrix = prepareForPhaseOne(matrix);
+        auto phaseOneMatrix = prepareForPhaseOne(matrix, artificialIndices);
         const auto m = phaseOneMatrix.getRows();
         const auto n = phaseOneMatrix.getCols();
         auto rowIndices = initIndices(m - 1, n - m);
@@ -628,7 +630,7 @@ void doSimplexAlgorithm(std::size_t example = 0, const bool debug = false) {
         }
 
         auto [phaseTwoMatrix, phaseTwoRowIndices] =
-            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices, matrix);
+            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices, matrix, artificialIndices);
 
         std::cout << "\n\n\nPhase II \n";
 
@@ -654,6 +656,7 @@ int main() {
     doSimplexAlgorithm(6, true);
     doSimplexAlgorithm(7, true);
     doSimplexAlgorithm(8, true);
+    // doSimplexAlgorithm();
 
     return 0;
 }
