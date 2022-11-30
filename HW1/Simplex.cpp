@@ -213,7 +213,7 @@ void simplexAlgorithm(std::size_t example = 0) {
             const auto iVal = division(i);
             const auto jVal = division(j);
             if (iVal == jVal) {
-                return rowIndices[iVal] < rowIndices[jVal];
+                return rowIndices[i] < rowIndices[j];
             }
             return iVal < jVal;
         };
