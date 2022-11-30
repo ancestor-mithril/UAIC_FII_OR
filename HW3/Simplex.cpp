@@ -1,9 +1,14 @@
 #include <algorithm>
+#include <cmath>
+#include <concepts>
+#include <functional>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <numeric>
 #include <ranges>
 #include <sstream>
+#include <stack>
 #include <tuple>
 #include <valarray>
 #include <vector>
@@ -82,6 +87,24 @@ class Matrix {
         data = newData;
     }
 
+    void addRow(std::size_t row, double value) {
+        auto newData = std::valarray<double>(value, (rows + 1) * cols);
+        for (std::size_t i = 0; i != rows + 1; ++i) {
+            if (i == row) {
+                continue;
+            }
+            for (std::size_t j = 0; j != cols; ++j) {
+                if (i > row) {
+                    newData[i * cols + j] = data[(i - 1) * cols + j];
+                } else {
+                    newData[i * cols + j] = data[i * cols + j];
+                }
+            }
+        }
+        ++rows;
+        data = newData;
+    }
+
     void removeColumn(std::size_t col) {
         auto newData = std::valarray<double>(0.0, rows * (cols - 1));
         for (std::size_t i = 0; i != rows; ++i) {
@@ -125,7 +148,7 @@ class Matrix {
         for (auto i = 0U; i != rows; ++i) {
             printVec(stream, row(i), " \t"s);
         }
-        std::cout << '\n';
+        stream << '\n';
     }
 };
 
@@ -133,8 +156,13 @@ auto isNegative = [](const auto value) { return value < 0; };
 auto isNegativeOrZero = [](const auto value) { return value <= 0; };
 auto isPositive = [](const auto value) { return value > 0; };
 auto isNotZero = [](const auto value) { return value != 0; };
+auto isInt = [](const std::floating_point auto value) {
+    return value - std::trunc(value) < 1e-8;
+};
 
 using Indices = std::vector<std::size_t>;
+using Solution = std::vector<double>;
+using Problem = std::pair<Matrix, Indices>;
 
 void remove_erase_if(auto& vec, auto pred) {
     const auto [removeFirst, removeLast] = ranges::remove_if(vec, pred);
@@ -158,7 +186,7 @@ Indices initIndices(std::size_t n, int start = 0) {
     return ret;
 }
 
-std::pair<Matrix, Indices> initData(std::size_t example = 0) {
+Problem initData(std::size_t example = 0) {
     // we assume that this is a m x n matrix
 
     if (example == 1) {
@@ -251,7 +279,10 @@ std::pair<Matrix, Indices> initData(std::size_t example = 0) {
                 ret(i, j) = init[i][j];
             }
         }
-        return {ret, {0,}};
+        return {ret,
+                {
+                    0,
+                }};
     }
     if (example == 6) {
         auto init = std::vector<std::vector<double>>{
@@ -309,6 +340,67 @@ std::pair<Matrix, Indices> initData(std::size_t example = 0) {
         return {ret, {0, 1}};
     }
 
+    if (example == 10) {
+        auto init = std::vector<std::vector<double>>{
+            {10, 3, 1, 0, 52},
+            {2, 3, 0, 1, 18},
+            {-5, -6, 0, 0, 0},
+        };
+
+        const auto m = init.size();
+        const auto n = init[0].size();
+
+        auto ret = Matrix{m, n};
+        for (std::size_t i = 0; i != m; ++i) {
+            for (std::size_t j = 0; j != n; ++j) {
+                ret(i, j) = init[i][j];
+            }
+        }
+        return {ret, {2}};
+    }
+
+    if (example == 11) {
+        auto init = std::vector<std::vector<double>>{
+            {2, 1, 3, 1, 1, 0, 0, 8},
+            {2, 3, 0, 4, 0, 1, 0, 12},
+            {3, 1, 2, 0, 0, 0, 1, 18},
+            {-1, -2, -1, -1, 0, 0, 0, 0},
+        };
+
+        const auto m = init.size();
+        const auto n = init[0].size();
+
+        auto ret = Matrix{m, n};
+        for (std::size_t i = 0; i != m; ++i) {
+            for (std::size_t j = 0; j != n; ++j) {
+                ret(i, j) = init[i][j];
+            }
+        }
+        return {ret, {4}};
+    }
+
+    if (example == 12) {
+        auto init = std::vector<std::vector<double>>{
+            {1, 2, -1, 1, 0, 0, 8},
+            {2, -1, 2, 0, 1, 0, 10},
+            {1, 3, 2, 0, 0, 1, 12},
+            {-1, 2, -1, 0, 0, 0, 0},
+        };
+
+        const auto m = init.size();
+        const auto n = init[0].size();
+
+        auto ret = Matrix{m, n};
+        for (std::size_t i = 0; i != m; ++i) {
+            for (std::size_t j = 0; j != n; ++j) {
+                ret(i, j) = init[i][j];
+            }
+        }
+        return {ret, {3}};
+    }
+
+
+
     auto init = std::vector<std::vector<double>>{
         {1, 1, 1, 1, 0, 0, 6},
         {1, -1, 0, 0, -1, 0, 1},
@@ -328,8 +420,9 @@ std::pair<Matrix, Indices> initData(std::size_t example = 0) {
     return {ret, {1, 2}};
 }
 
-void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix,
-                   const Indices& rowIndices) {
+std::pair<Solution, double> printSolution(auto& stream, Matrix& matrix,
+                                          Matrix& initialMatrix,
+                                          const Indices& rowIndices) {
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
     stream << "Optimum value: " << -matrix(m - 1, n - 1) << '\n';
@@ -349,6 +442,7 @@ void printSolution(auto& stream, Matrix& matrix, Matrix& initialMatrix,
                << '\n';
         stream << '\n';
     }
+    return {variables, -matrix(m - 1, n - 1)};
 }
 
 void pivotMatrix(Matrix& matrix, const std::size_t pivotRow,
@@ -377,9 +471,8 @@ void pivotMatrix(Matrix& matrix, const std::size_t pivotRow,
     matrix.sliceRow(pivotRow) = matrix.row(pivotRow) / pivotElement;
 }
 
-std::pair<Matrix, Indices> dualSimplexAlgorithm(const Matrix& _matrix,
-                                                const Indices& _rowIndices,
-                                                const bool debug) {
+Problem dualSimplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices,
+                             const bool debug) {
     auto matrix = _matrix;
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
@@ -440,9 +533,8 @@ std::pair<Matrix, Indices> dualSimplexAlgorithm(const Matrix& _matrix,
     return {matrix, rowIndices};
 }
 
-std::pair<Matrix, Indices> simplexAlgorithm(const Matrix& _matrix,
-                                            const Indices& _rowIndices,
-                                            const bool debug) {
+Problem simplexAlgorithm(const Matrix& _matrix, const Indices& _rowIndices,
+                         const bool debug) {
     auto matrix = _matrix;
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
@@ -532,23 +624,22 @@ Matrix prepareForPhaseOne(const Matrix& _matrix, Indices& artificialIndices) {
 // our convention is that we always add artificial slack variables (so we have
 // numRows -1 artificial slack variables that need to be eliminated)
 // furthermore, the objective function needs to be recalculated
-std::pair<Matrix, Indices> prepareForPhaseTwo(const Matrix& phaseOneMatrix,
-                                              const Indices& phaseOneRowIndices,
-                                              Matrix& oldMatrix,
-                                              const Indices& artificialIndices) {
+Problem prepareForPhaseTwo(const Matrix& phaseOneMatrix,
+                           const Indices& phaseOneRowIndices, Matrix& oldMatrix,
+                           const Indices& artificialIndices) {
     // oldMatrix not const because of lazyness
 
     auto matrix = phaseOneMatrix;
-    
+
     auto rowIndices = phaseOneRowIndices;
 
     // we now need to remove the variables from rowIndices that are artificial
 
     // artificial variables are the last numRows - 1 variables
     auto isArtificial = [&artificialIndices](const auto index) {
-        return ranges::find(artificialIndices, index) != artificialIndices.end();
+        return ranges::find(artificialIndices, index) !=
+               artificialIndices.end();
     };
-
 
     const auto end = rowIndices.size();
     for (std::size_t i = 0; i != end; ++i) {
@@ -603,44 +694,153 @@ void justSimplex(std::size_t example = 0) {
     simplexAlgorithm(matrix, rowIndices, true);
 }
 
-void doSimplexAlgorithm(std::size_t example = 0, const bool debug = true) {
-    auto [matrix, artificialIndices] = initData(example);
+std::pair<Solution, double> twoPhaseMethod(Matrix matrix,
+                                           Indices artificialIndices,
+                                           const bool debug = false) {
     if (debug) {
         matrix.print(std::cout);
     }
+    auto phaseOneMatrix = prepareForPhaseOne(matrix, artificialIndices);
+    const auto m = phaseOneMatrix.getRows();
+    const auto n = phaseOneMatrix.getCols();
+    auto rowIndices = initIndices(m - 1, n - m);
 
-    try {
-        auto phaseOneMatrix = prepareForPhaseOne(matrix, artificialIndices);
-        const auto m = phaseOneMatrix.getRows();
-        const auto n = phaseOneMatrix.getCols();
-        auto rowIndices = initIndices(m - 1, n - m);
-
+    if (debug)
         std::cout << "\n\n\nPhase I \n";
-        auto [phaseOneResult, phaseOneRowIndices] =
-            simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
+    auto [phaseOneResult, phaseOneRowIndices] =
+        simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
 
-        // if (debug) {
-        //     printSolution(std::cout, phaseOneResult, matrix,
-        //                   phaseOneRowIndices);
-        // }
+    if (phaseOneResult(m - 1, n - 1) < 0) {
+        std::cout << "No solution for the phase 1 matrix\n";
+        throw std::runtime_error{"No solution for the phase 1 matrix"};
+    }
 
-        if (phaseOneResult(m - 1, n - 1) < 0) {
-            std::cout << "No solution for the phase 1 matrix\n";
-            throw std::runtime_error{"No solution for the phase 1 matrix"};
-        }
+    auto [phaseTwoMatrix, phaseTwoRowIndices] = prepareForPhaseTwo(
+        phaseOneResult, phaseOneRowIndices, matrix, artificialIndices);
 
-        auto [phaseTwoMatrix, phaseTwoRowIndices] =
-            prepareForPhaseTwo(phaseOneResult, phaseOneRowIndices, matrix, artificialIndices);
-
+    if (debug)
         std::cout << "\n\n\nPhase II \n";
 
-        auto [finalMatrix, finalRowIndices] =
-            simplexAlgorithm(phaseTwoMatrix, phaseTwoRowIndices, debug);
+    auto [finalMatrix, finalRowIndices] =
+        simplexAlgorithm(phaseTwoMatrix, phaseTwoRowIndices, debug);
 
-        if (debug) {
-            printSolution(std::cout, finalMatrix, phaseTwoMatrix,
-                          finalRowIndices);
+    if (debug) {
+        return printSolution(std::cout, finalMatrix, phaseTwoMatrix,
+                             finalRowIndices);
+    } else {
+        auto debugStream = std::ostringstream{};
+        return printSolution(debugStream, finalMatrix, phaseTwoMatrix,
+                             finalRowIndices);
+    }
+}
+
+auto pop(auto& stack) {
+    auto ret = stack.top();
+    stack.pop();
+    return ret;
+}
+
+auto transform_fractional(const Solution& range) {
+    auto ret = Solution{};
+    ret.reserve(range.size());
+    ranges::transform(range, std::back_inserter(ret),
+                      [](const auto elem) { return elem - std::trunc(elem); });
+    return ret;
+}
+
+auto argmax(const auto& range) {
+    auto max = ranges::max_element(range);
+    return ranges::distance(std::begin(range), max);
+}
+
+Problem createLeftProblem(Matrix matrix, Indices artificialIndices,
+                          const std::size_t index, const double value) {
+    // we add xj <= [xj]
+    const auto slackIndex = matrix.getCols() - 1;
+
+    matrix.addColumn(slackIndex, 0);  
+    // we add a column for the new slack variable that is inserted toghether with xj
+    const auto newConstraintRow = matrix.getRows() - 1;
+    
+    matrix.addRow(newConstraintRow, 0);
+    // TODO: Check transformation with breackpoint
+    matrix(newConstraintRow, index) = 1;               // setting xj
+    matrix(newConstraintRow, slackIndex) = 1;          // setting slack
+    matrix(newConstraintRow, slackIndex + 1) = value;  // setting RHS
+
+    return {matrix, artificialIndices};
+}
+
+Problem createRightProblem(Matrix matrix, Indices artificialIndices,
+                           const std::size_t index, const double value) {
+    // we add xj >= [xj] + 1
+    const auto newConstraintRow = matrix.getRows() - 1;
+
+    matrix.addRow(newConstraintRow, 0);
+    matrix(newConstraintRow, index) = 1;  // setting xj
+    matrix(newConstraintRow, matrix.getCols() - 1) = value;
+    artificialIndices.push_back(newConstraintRow);
+
+    return {matrix, artificialIndices};
+}
+
+void branchAndBound(Problem problem, const bool debug = false) {
+    auto beginOfSlack = *std::prev(problem.second.end());
+    problem.second.pop_back();
+    auto stack = std::stack<Problem>{};
+    stack.push(problem);
+    auto solution = Solution{};
+    auto objective = std::numeric_limits<double>::max();
+    auto maxIterations = 1000;
+
+    while (not stack.empty() and --maxIterations) {
+        auto [matrix, artificialIndices] = pop(stack);
+        try {
+            auto [currentSolution, currentObjective] =
+                twoPhaseMethod(matrix, artificialIndices, debug);
+            currentSolution.erase(currentSolution.begin() + beginOfSlack, currentSolution.end());
+            std::cout << "currentObjective: " << currentObjective << " -> ";
+            printVec(std::cout, currentSolution);
+            if (currentObjective >= objective) {
+                continue;
+            }
+            if (ranges::all_of(currentSolution, isInt)) {
+                solution = currentSolution;
+                objective = currentObjective;
+                std::cout << "Objective: " << objective << " -> ";
+                printVec(std::cout, solution);
+            } else {
+                
+                auto index = argmax(transform_fractional(currentSolution));
+                auto value = std::trunc(currentSolution[index]);
+                stack.push(
+                    createLeftProblem(matrix, artificialIndices, index, value));
+                stack.push(createRightProblem(matrix, artificialIndices, index,
+                                              value + 1));
+            }
+        } catch (const std::exception& error) {
+            if (error.what() == "Problem is unbounded"s) {
+                throw;
+            }
         }
+    }
+    std::cout << "Final Objective: " << objective << " -> ";
+    printVec(std::cout, solution);
+}
+
+void doBranchAndBound(std::size_t example = 0, const bool debug = false) {
+     try {
+        branchAndBound(initData(example), debug);
+    } catch (...) {
+    }
+    std::cout << "\n\n\n\n";
+}
+
+void doSimplexAlgorithm(std::size_t example = 0, const bool debug = true) {
+    auto [matrix, artificialIndices] = initData(example);
+
+    try {
+        twoPhaseMethod(matrix, artificialIndices, debug);
     } catch (...) {
     }
     std::cout << "\n\n\n\n";
@@ -652,11 +852,15 @@ int main() {
     // justSimplex(3);
     // doSimplexAlgorithm(4, true);
 
-    doSimplexAlgorithm(5, true);
-    doSimplexAlgorithm(6, true);
-    doSimplexAlgorithm(7, true);
-    doSimplexAlgorithm(8, true);
+    // doSimplexAlgorithm(5, true);
+    // doSimplexAlgorithm(6, true);
+    // doSimplexAlgorithm(7, true);
+    // doSimplexAlgorithm(8, true);
     // doSimplexAlgorithm();
+    
+    doBranchAndBound(10, false);
+    doBranchAndBound(11, false);
+    doBranchAndBound(12, false);
 
     return 0;
 }
