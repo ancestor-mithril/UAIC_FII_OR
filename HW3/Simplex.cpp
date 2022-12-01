@@ -150,6 +150,15 @@ class Matrix {
         }
         stream << '\n';
     }
+
+    std::size_t getSlackRow(const std::size_t index) {
+        for (std::size_t i = 0; i != rows - 1; ++i) {
+            if (this->operator()(i, index) == 1) {
+                return i;
+            }
+        }
+        throw std::runtime_error{"Not slack"};
+    }
 };
 
 auto isNegative = [](const auto value) { return value < 0; };
@@ -157,7 +166,9 @@ auto isNegativeOrZero = [](const auto value) { return value <= 0; };
 auto isPositive = [](const auto value) { return value > 0; };
 auto isNotZero = [](const auto value) { return value != 0; };
 auto isInt = [](const std::floating_point auto value) {
-    return value - std::trunc(value) < 1e-8;
+    const auto floor = std::floor(value);
+    const auto ceil = std::ceil(value);
+    return (std::abs(value - floor) < 1e-8) or (std::abs(ceil - value) < 1e-8);
 };
 
 using Indices = std::vector<std::size_t>;
@@ -399,8 +410,6 @@ Problem initData(std::size_t example = 0) {
         return {ret, {3}};
     }
 
-
-
     auto init = std::vector<std::vector<double>>{
         {1, 1, 1, 1, 0, 0, 6},
         {1, -1, 0, 0, -1, 0, 1},
@@ -420,9 +429,9 @@ Problem initData(std::size_t example = 0) {
     return {ret, {1, 2}};
 }
 
-std::pair<Solution, double> printSolution(auto& stream, Matrix& matrix,
-                                          Matrix& initialMatrix,
-                                          const Indices& rowIndices) {
+std::tuple<Solution, double, Matrix, Indices> printSolution(
+    auto& stream, Matrix& matrix, Matrix& initialMatrix,
+    const Indices& rowIndices) {
     const auto m = matrix.getRows();
     const auto n = matrix.getCols();
     stream << "Optimum value: " << -matrix(m - 1, n - 1) << '\n';
@@ -442,7 +451,7 @@ std::pair<Solution, double> printSolution(auto& stream, Matrix& matrix,
                << '\n';
         stream << '\n';
     }
-    return {variables, -matrix(m - 1, n - 1)};
+    return {variables, -matrix(m - 1, n - 1), matrix, rowIndices};
 }
 
 void pivotMatrix(Matrix& matrix, const std::size_t pivotRow,
@@ -694,9 +703,8 @@ void justSimplex(std::size_t example = 0) {
     simplexAlgorithm(matrix, rowIndices, true);
 }
 
-std::pair<Solution, double> twoPhaseMethod(Matrix matrix,
-                                           Indices artificialIndices,
-                                           const bool debug = false) {
+std::tuple<Solution, double, Matrix, Indices> twoPhaseMethod(
+    Matrix matrix, Indices artificialIndices, const bool debug = false) {
     if (debug) {
         matrix.print(std::cout);
     }
@@ -705,8 +713,7 @@ std::pair<Solution, double> twoPhaseMethod(Matrix matrix,
     const auto n = phaseOneMatrix.getCols();
     auto rowIndices = initIndices(m - 1, n - m);
 
-    if (debug)
-        std::cout << "\n\n\nPhase I \n";
+    if (debug) std::cout << "\n\n\nPhase I \n";
     auto [phaseOneResult, phaseOneRowIndices] =
         simplexAlgorithm(phaseOneMatrix, rowIndices, debug);
 
@@ -718,8 +725,7 @@ std::pair<Solution, double> twoPhaseMethod(Matrix matrix,
     auto [phaseTwoMatrix, phaseTwoRowIndices] = prepareForPhaseTwo(
         phaseOneResult, phaseOneRowIndices, matrix, artificialIndices);
 
-    if (debug)
-        std::cout << "\n\n\nPhase II \n";
+    if (debug) std::cout << "\n\n\nPhase II \n";
 
     auto [finalMatrix, finalRowIndices] =
         simplexAlgorithm(phaseTwoMatrix, phaseTwoRowIndices, debug);
@@ -753,15 +759,16 @@ auto argmax(const auto& range) {
     return ranges::distance(std::begin(range), max);
 }
 
-Problem createLeftProblem(Matrix matrix, Indices artificialIndices,
+Problem createLeftProblem(Matrix matrix, const Indices& artificialIndices,
                           const std::size_t index, const double value) {
     // we add xj <= [xj]
     const auto slackIndex = matrix.getCols() - 1;
 
-    matrix.addColumn(slackIndex, 0);  
-    // we add a column for the new slack variable that is inserted toghether with xj
+    matrix.addColumn(slackIndex, 0);
+    // we add a column for the new slack variable that is inserted toghether
+    // with xj
     const auto newConstraintRow = matrix.getRows() - 1;
-    
+
     matrix.addRow(newConstraintRow, 0);
     // TODO: Check transformation with breackpoint
     matrix(newConstraintRow, index) = 1;               // setting xj
@@ -784,6 +791,41 @@ Problem createRightProblem(Matrix matrix, Indices artificialIndices,
     return {matrix, artificialIndices};
 }
 
+Problem addCut(Matrix matrix, Matrix finalMatrix,
+               const Indices& artificialIndices, const std::size_t index,
+               const std::size_t beginOfSlack) {
+    const auto lastSlackIndex = matrix.getCols() - 1;
+    const auto lastRowIndex = matrix.getRows() - 1;
+    matrix.addColumn(lastSlackIndex, 0);
+    finalMatrix.addColumn(lastSlackIndex, 0);
+    auto cutRow = finalMatrix.row(index);
+    ranges::transform(cutRow, std::begin(cutRow),
+                      [](const auto value) { return std::floor(value); });
+
+    const auto nonZeroIndices =
+        getIndicesIfPred(cutRow, beginOfSlack, lastSlackIndex, isNotZero);
+    for (const auto index : nonZeroIndices) {
+        auto slackRow = matrix.getSlackRow(index);
+        auto row = matrix.row(slackRow);
+        row[index] = 0;
+        row = row * cutRow[index];
+        cutRow[index] = 0;
+        cutRow -= row;
+        // printVec(std::cout, row, "\t");
+        // printVec(std::cout, cutRow, "\t");
+    }
+
+    // printVec(std::cout, nonZeroIndices);
+    // printVec(std::cout, cutRow, "\t\t");
+    // matrix.print(std::cout);
+
+    const auto newConstraintRow = matrix.getRows() - 1;
+    matrix.addRow(newConstraintRow, 0);
+    matrix.sliceRow(newConstraintRow) = cutRow;
+    matrix(newConstraintRow, lastSlackIndex) = 1;
+    return {matrix, artificialIndices};
+}
+
 void branchAndBound(Problem problem, const bool debug = false) {
     if (problem.second.size() == 0) {
         throw std::runtime_error("Unknown begining for slack variables");
@@ -799,9 +841,10 @@ void branchAndBound(Problem problem, const bool debug = false) {
     while (not stack.empty() and --maxIterations) {
         auto [matrix, artificialIndices] = pop(stack);
         try {
-            auto [currentSolution, currentObjective] =
+            auto [currentSolution, currentObjective, _1, _2] =
                 twoPhaseMethod(matrix, artificialIndices, debug);
-            currentSolution.erase(currentSolution.begin() + beginOfSlack, currentSolution.end());
+            currentSolution.erase(currentSolution.begin() + beginOfSlack,
+                                  currentSolution.end());
             std::cout << "currentObjective: " << currentObjective << " -> ";
             printVec(std::cout, currentSolution);
             if (currentObjective >= objective) {
@@ -813,7 +856,6 @@ void branchAndBound(Problem problem, const bool debug = false) {
                 std::cout << "Objective: " << objective << " -> ";
                 printVec(std::cout, solution);
             } else {
-                
                 auto index = argmax(transform_fractional(currentSolution));
                 auto value = std::trunc(currentSolution[index]);
                 stack.push(
@@ -831,9 +873,9 @@ void branchAndBound(Problem problem, const bool debug = false) {
     printVec(std::cout, solution);
 }
 
-void cuttingPlane(Matrix matrix, Indices artificialIndices, const bool debug = false)
-{
-    constexpr auto maxIterations = 10;
+void cuttingPlane(Matrix matrix, Indices artificialIndices,
+                  const bool debug = false) {
+    constexpr auto maxIterations = 4;
     if (artificialIndices.size() == 0) {
         throw std::runtime_error("Unknown begining for slack variables");
     }
@@ -841,7 +883,8 @@ void cuttingPlane(Matrix matrix, Indices artificialIndices, const bool debug = f
     artificialIndices.pop_back();
 
     for (auto i = 0; i != maxIterations; ++i) {
-        auto [solution, objective] = twoPhaseMethod(matrix, artificialIndices, debug);
+        auto [solution, objective, finalMatrix, rowIndices] =
+            twoPhaseMethod(matrix, artificialIndices, debug);
         solution.erase(solution.begin() + beginOfSlack, solution.end());
         std::cout << "currentObjective: " << objective << " -> ";
         printVec(std::cout, solution);
@@ -850,21 +893,18 @@ void cuttingPlane(Matrix matrix, Indices artificialIndices, const bool debug = f
             printVec(std::cout, solution);
             return;
         }
-        for (std::size_t j = 0; j != solution.size(); ++j) {
-            if (not isInt(solution[j])) {
-                auto value = std::floor(solution[j]);
-                std::tie(matrix, artificialIndices) = 
-                createLeftProblem(matrix, artificialIndices, j, value);
-                break;
-            }
-        }
-
+        auto index = *ranges::find_if(rowIndices, [&](const auto index) {
+            return index < beginOfSlack and not isInt(solution[index]);
+        });
+        auto value = std::floor(solution[index]);
+        std::tie(matrix, artificialIndices) =
+            addCut(matrix, finalMatrix, artificialIndices, index, beginOfSlack);
     }
 }
 
 void doCuttingPlane(std::size_t example = 0, const bool debug = false) {
-     try {
-         auto [matrix, artificialIndices] = initData(example);
+    try {
+        auto [matrix, artificialIndices] = initData(example);
         cuttingPlane(matrix, artificialIndices, debug);
     } catch (...) {
         std::cout << "Infeasible problem\n";
@@ -873,7 +913,7 @@ void doCuttingPlane(std::size_t example = 0, const bool debug = false) {
 }
 
 void doBranchAndBound(std::size_t example = 0, const bool debug = false) {
-     try {
+    try {
         branchAndBound(initData(example), debug);
     } catch (...) {
     }
@@ -901,7 +941,7 @@ int main() {
     // doSimplexAlgorithm(7, true);
     // doSimplexAlgorithm(8, true);
     // doSimplexAlgorithm();
-    
+
     doBranchAndBound(10, false);
     doBranchAndBound(11, false);
     doBranchAndBound(12, false);
