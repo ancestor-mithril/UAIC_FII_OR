@@ -785,7 +785,10 @@ Problem createRightProblem(Matrix matrix, Indices artificialIndices,
 }
 
 void branchAndBound(Problem problem, const bool debug = false) {
-    auto beginOfSlack = *std::prev(problem.second.end());
+    if (problem.second.size() == 0) {
+        throw std::runtime_error("Unknown begining for slack variables");
+    }
+    const auto beginOfSlack = *std::prev(problem.second.end());
     problem.second.pop_back();
     auto stack = std::stack<Problem>{};
     stack.push(problem);
@@ -828,6 +831,47 @@ void branchAndBound(Problem problem, const bool debug = false) {
     printVec(std::cout, solution);
 }
 
+void cuttingPlane(Matrix matrix, Indices artificialIndices, const bool debug = false)
+{
+    constexpr auto maxIterations = 10;
+    if (artificialIndices.size() == 0) {
+        throw std::runtime_error("Unknown begining for slack variables");
+    }
+    const auto beginOfSlack = *std::prev(artificialIndices.end());
+    artificialIndices.pop_back();
+
+    for (auto i = 0; i != maxIterations; ++i) {
+        auto [solution, objective] = twoPhaseMethod(matrix, artificialIndices, debug);
+        solution.erase(solution.begin() + beginOfSlack, solution.end());
+        std::cout << "currentObjective: " << objective << " -> ";
+        printVec(std::cout, solution);
+        if (ranges::all_of(solution, isInt)) {
+            std::cout << "Final Objective: " << objective << " -> ";
+            printVec(std::cout, solution);
+            return;
+        }
+        for (std::size_t j = 0; j != solution.size(); ++j) {
+            if (not isInt(solution[j])) {
+                auto value = std::floor(solution[j]);
+                std::tie(matrix, artificialIndices) = 
+                createLeftProblem(matrix, artificialIndices, j, value);
+                break;
+            }
+        }
+
+    }
+}
+
+void doCuttingPlane(std::size_t example = 0, const bool debug = false) {
+     try {
+         auto [matrix, artificialIndices] = initData(example);
+        cuttingPlane(matrix, artificialIndices, debug);
+    } catch (...) {
+        std::cout << "Infeasible problem\n";
+    }
+    std::cout << "\n\n\n\n";
+}
+
 void doBranchAndBound(std::size_t example = 0, const bool debug = false) {
      try {
         branchAndBound(initData(example), debug);
@@ -861,6 +905,10 @@ int main() {
     doBranchAndBound(10, false);
     doBranchAndBound(11, false);
     doBranchAndBound(12, false);
+
+    doCuttingPlane(10, false);
+    doCuttingPlane(11, false);
+    doCuttingPlane(12, false);
 
     return 0;
 }
